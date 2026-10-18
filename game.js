@@ -1,84 +1,15 @@
 (()=>{'use strict';
-const $=s=>document.querySelector(s),board=$('#board'),message=$('#message');
-const directions=[{x:0,y:-1,k:'up'},{x:0,y:1,k:'down'},{x:-1,y:0,k:'left'},{x:1,y:0,k:'right'}];
-const config={easy:{w:7,h:7,blocks:11,min:5,warps:0},normal:{w:9,h:9,blocks:23,min:8,warps:0},hard:{w:11,h:11,blocks:36,min:10,warps:3}};
-let game=null,history=[],moves=0,record=+(localStorage.getItem('ricochet-record')||0),solved=false;
-const equal=(a,b)=>a.x===b.x&&a.y===b.y;
-const rnd=n=>Math.floor(Math.random()*n);
-const shuffle=a=>{for(let i=a.length-1;i>0;i--){let j=rnd(i+1);[a[i],a[j]]=[a[j],a[i]]}return a};
-function slide(p,d,m){let pos={...p},steps=0,usedWarp=false;
- for(let i=0;i<m.w*m.h+2;i++){
-  let x=pos.x+d.x,y=pos.y+d.y;
-  if(x<0||y<0||x>=m.w||y>=m.h||m.walls.has(y*m.w+x))break;
-  pos={x,y};steps++;
-  let wi=m.warps.findIndex(w=>equal(w,pos));
-  if(wi>=0){let mate=m.warps[wi^1];pos={x:mate.x,y:mate.y};usedWarp=true;break;}
- }
- return {pos,steps,usedWarp};
-}
-function shortest(m,start,goal,withoutWarp=false){let q=[{p:start,path:[],warp:false,stops:[]}],seen=new Set([start.y*m.w+start.x]);
- for(let i=0;i<q.length;i++){
-  let cur=q[i];if(equal(cur.p,goal))return cur;
-  for(let d of directions){let res=slide(cur.p,d,withoutWarp?{...m,warps:[]}:m),p=res.pos,k=p.y*m.w+p.x;
-   if(equal(p,cur.p)||seen.has(k))continue;
-   seen.add(k);q.push({p,path:[...cur.path,d.k],warp:cur.warp||res.usedWarp,stops:[...cur.stops,{...p}]});
-  }
- }
- return null;
-}
-function candidates(m){let a=[];for(let y=0;y<m.h;y++)for(let x=0;x<m.w;x++)if(!m.walls.has(y*m.w+x)&&!m.warps.some(w=>w.x===x&&w.y===y))a.push({x,y});return a}
-function generate(){let levels=['easy','normal','hard'];let level=levels[rnd(levels.length)],c=config[level],best=null,bestScore=-1;
- for(let attempt=0;attempt<1800;attempt++){
-  let m={w:c.w,h:c.h,walls:new Set(),warps:[],level};
-  while(m.walls.size<c.blocks){let x=1+rnd(m.w-2),y=1+rnd(m.h-2);m.walls.add(y*m.w+x)}
-  let free=candidates(m);if(free.length<10)continue;
-  if(c.warps){let warpCount=2+rnd(c.warps);let places=shuffle(free.slice());for(let i=0;i<warpCount*2;i++)m.warps.push(places.pop());free=candidates(m)}
-  if(free.length<2)continue;
-  let start=free[rnd(free.length)],goals=shuffle(free.filter(p=>Math.abs(p.x-start.x)+Math.abs(p.y-start.y)>c.w/2));
-  for(let goal of goals.slice(0,12)){
-   let sol=shortest(m,start,goal);if(!sol)continue;
-   let uniqueStops=new Set(sol.stops.map(p=>p.y*m.w+p.x)).size;
-   let turns=sol.path.slice(1).filter((k,i)=>k!==sol.path[i]).length;
-   let wallUses=sol.stops.filter(p=>p.x>0&&p.y>0&&p.x<m.w-1&&p.y<m.h-1).length;
-   let warpRequired=c.warps?(!shortest(m,start,goal,true)&&sol.warp):true;
-   let score=sol.path.length*4+turns*2+wallUses+uniqueStops+(warpRequired?12:0);
-   if(sol.path.length>=c.min&&turns>=Math.floor(c.min/2)&&wallUses>=2&&warpRequired){game={...m,start,goal,player:{...start},optimal:sol.path.length};history=[];moves=0;solved=false;render();message.textContent='新しいランダム迷宮！ ★を目指してください。';return;}
-   if(score>bestScore&&sol.path.length>=3){best={...m,start,goal,player:{...start},optimal:sol.path.length};bestScore=score}
-  }
- }
- // Even when the strict difficulty target cannot be reached, only accept a BFS-verified solvable board.
- if(best){game=best;history=[];moves=0;solved=false;render();message.textContent='新しいランダム迷宮！ ★を目指してください。';return}
- // Retry rather than showing an unverified or unsolvable map.
- setTimeout(generate,0);
-}
-function render(){board.style.gridTemplateColumns=`repeat(${game.w},minmax(0,1fr))`;board.innerHTML='';
- for(let y=0;y<game.h;y++)for(let x=0;x<game.w;x++){
-  let idx=y*game.w+x,el=document.createElement('div');el.className='cell';let char='·';
-  if(game.walls.has(idx)){el.classList.add('wall');char='█'}
-  let warpIndex=game.warps.findIndex(w=>w.x===x&&w.y===y);
-  if(warpIndex>=0){el.classList.add('warp','warp'+Math.floor(warpIndex/2)%4);char=String.fromCharCode(65+Math.floor(warpIndex/2))}
-  if(equal(game.goal,{x,y})){el.classList.add('goal');char='★'}
-  if(equal(game.player,{x,y})){el.classList.add('player');char=equal(game.player,game.goal)?'✦':'@'}
-  el.textContent=char;board.append(el);
- }
- $('#moves').textContent=moves;$('#best').textContent=game.optimal;
- $('#stageLabel').textContent=`${game.level.toUpperCase()} / ${game.w}×${game.h}`;
- $('#record').textContent=`クリア記録: ${record} ｜ 最短手数: ${game.optimal}`;
- document.querySelectorAll('.level').forEach(b=>b.classList.toggle('active',b.dataset.level===game.level));
-}
-function move(k){if(solved)return;let d=directions.find(d=>d.k===k);if(!d)return;let result=slide(game.player,d,game);
- if(equal(result.pos,game.player)){message.textContent='その方向には進めません。';return}
- history.push({p:{...game.player},moves});game.player=result.pos;moves++;render();
- if(equal(game.player,game.goal)){solved=true;record++;localStorage.setItem('ricochet-record',record);render();message.innerHTML=`<strong>MISSION CLEAR!</strong> ${moves}手で到達。次の問題へ！`;setTimeout(()=>{if(solved)generate()},1100)}
- else message.textContent=result.usedWarp?'ワープ！ 出口で停止しました。':`滑走完了。手数 ${moves}。`;
-}
-function undo(){if(!history.length){message.textContent='戻せる手がありません。';return}let h=history.pop();game.player=h.p;moves=h.moves;solved=false;render();message.textContent='1手戻しました。'}
-function hint(){let sol=shortest(game,game.player,game.goal);if(!sol||!sol.path.length){message.textContent='ゴール済み、または経路がありません。';return}let k=sol.path[0];message.innerHTML=`ヒント：次の一手は <strong>${{up:'▲ 上',down:'▼ 下',left:'◀ 左',right:'▶ 右'}[k]}</strong>`}
-document.querySelectorAll('[data-dir]').forEach(b=>b.onclick=()=>move(b.dataset.dir));
-// Difficulty is chosen by the generator, not the player.
-document.querySelectorAll('.level').forEach(b=>{b.disabled=true;b.title='難易度は毎回ランダムで決まります'});
-$('#undo').onclick=undo;$('#hintBtn').onclick=hint;$('#newGame').onclick=generate;
-$('#resetRecord').onclick=()=>{record=0;localStorage.removeItem('ricochet-record');render();message.textContent='記録をリセットしました。'};
-document.onkeydown=e=>{let k={ArrowUp:'up',ArrowDown:'down',ArrowLeft:'left',ArrowRight:'right'}[e.key];if(k){e.preventDefault();move(k)}};
-if('serviceWorker'in navigator&&location.protocol.startsWith('http'))addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(()=>{}));generate();
+const $=s=>document.querySelector(s),dirs=[{x:0,y:-1,k:'up'},{x:0,y:1,k:'down'},{x:-1,y:0,k:'left'},{x:1,y:0,k:'right'}],same=(a,b)=>a.x===b.x&&a.y===b.y,rnd=n=>Math.floor(Math.random()*n);let game,history=[],moves=0,won=false;
+function slide(start,d,m){let p={...start};for(let i=0;i<m.w*m.h;i++){let x=p.x+d.x,y=p.y+d.y;if(x<0||y<0||x>=m.w||y>=m.h||m.walls.has(y*m.w+x))break;p={x,y};let wi=m.warps.findIndex(w=>same(w,p));if(wi>=0)return {...m.warps[wi^1]};}return p}
+function solve(m,start,goal,requireWarp=false){let queue=[{p:start,path:[],used:false}],seen=new Set([start.y*m.w+start.x+':0']);for(let i=0;i<queue.length&&i<25000;i++){let cur=queue[i];if(same(cur.p,goal)&&(!requireWarp||cur.used))return cur.path;for(const d of dirs){let next=slide(cur.p,d,m);if(same(next,cur.p))continue;let entered=m.warps.some(w=>same(w,next))&&m.warps.length>0; // A warp move ends at the paired portal.
+let used=cur.used||entered,k=next.y*m.w+next.x+':'+(+used);if(seen.has(k))continue;seen.add(k);queue.push({p:next,path:[...cur.path,d.k],used});}}return null}
+function generate(){let candidate=null;for(let attempt=0;attempt<900;attempt++){let n=[9,10,11,12,13][rnd(5)],m={w:n,h:n,walls:new Set(),warps:[]},density=.20+Math.random()*.13,blockCount=Math.floor(n*n*density);while(m.walls.size<blockCount){let x=1+rnd(n-2),y=1+rnd(n-2);m.walls.add(y*n+x)}let free=[];for(let y=0;y<n;y++)for(let x=0;x<n;x++)if(!m.walls.has(y*n+x))free.push({x,y});let pairs=rnd(Math.min(5,Math.floor(free.length/12))+1);for(let j=0;j<pairs;j++){if(free.length<2)break;let ai=rnd(free.length),a=free.splice(ai,1)[0],bi=rnd(free.length),b=free.splice(bi,1)[0];m.warps.push(a,b)}if(free.length<2)continue;let start=free[rnd(free.length)],far=free.filter(p=>Math.abs(p.x-start.x)+Math.abs(p.y-start.y)>=n/2);if(!far.length)continue;let goal=far[rnd(far.length)],path=solve(m,start,goal);if(!path)continue;let turns=path.slice(1).filter((v,i)=>v!==path[i]).length;let score=path.length+Math.min(turns,10)*.3;let min=n<=10?10:n<=12?12:14;if(path.length>=min&&turns>=min-3){candidate={m,start,goal,path};break}if(!candidate||score>candidate.score)candidate={m,start,goal,path,score};}
+if(!candidate){ // Guaranteed reachable emergency board, using BFS to choose its target.
+let n=11,m={w:n,h:n,walls:new Set(),warps:[]};for(let y=2;y<n-1;y+=2)for(let x=2;x<n-1;x+=2)m.walls.add(y*n+x);let start={x:1,y:1},goal={x:n-1,y:n-1};let path=solve(m,start,goal);candidate={m,start,goal,path:path||[]};}
+game={...candidate.m,start:candidate.start,goal:candidate.goal,player:{...candidate.start},optimal:candidate.path.length};history=[];moves=0;won=false;render();}
+function render(){let b=$('#board');b.style.gridTemplateColumns=`repeat(${game.w},minmax(0,1fr))`;b.innerHTML='';for(let y=0;y<game.h;y++)for(let x=0;x<game.w;x++){let e=document.createElement('div'),idx=y*game.w+x,ch='·';e.className='cell';if(game.walls.has(idx)){e.classList.add('wall');ch='█'}let wi=game.warps.findIndex(w=>same(w,{x,y}));if(wi>=0){e.classList.add('warp');ch=String.fromCharCode(65+Math.floor(wi/2));e.style.background=['#6d388a','#256e9a','#a34170','#387e60','#915b2c'][Math.floor(wi/2)%5]}if(same(game.goal,{x,y})){e.classList.add('goal');ch='★'}if(same(game.player,{x,y})){e.classList.add('player');ch='@'}e.textContent=ch;b.appendChild(e)}$('#moves').textContent=moves;$('#optimal').textContent=game.optimal;$('#mapinfo').textContent=`${game.w}×${game.h} / WARP ${game.warps.length/2}`;$('#warplegend').textContent=game.warps.length?'同じ文字同士でワープ':'ワープなし';}
+function move(k){if(won)return;let d=dirs.find(x=>x.k===k);if(!d)return;let p=slide(game.player,d,game);if(same(p,game.player))return;history.push({p:{...game.player},moves});game.player=p;moves++;if(same(p,game.goal)){won=true;$('#message').textContent=`★ CLEAR! ${moves}手 / 最短${game.optimal}手。次の迷宮へ！`;}else $('#message').textContent='壁まで滑走。★を目指そう！';render()}
+function undo(){if(!history.length)return;let old=history.pop();game.player=old.p;moves=old.moves;won=false;$('#message').textContent='1手戻しました';render()}
+function hint(){let path=solve(game,game.player,game.goal);if(!path||!path.length){$('#message').textContent='ヒントがありません';return}let names={up:'▲ 上',down:'▼ 下',left:'◀ 左',right:'右 ▶'};$('#message').textContent=`ヒント：次は ${names[path[0]]} に滑ろう`}
+document.querySelectorAll('[data-dir]').forEach(b=>b.addEventListener('click',()=>move(b.dataset.dir)));$('#undo').onclick=undo;$('#hint').onclick=hint;$('#next').onclick=()=>{generate();$('#message').textContent='新しいランダム迷宮！ ★ を目指そう！'};document.addEventListener('keydown',e=>{let k={ArrowUp:'up',ArrowDown:'down',ArrowLeft:'left',ArrowRight:'right'}[e.key];if(k){e.preventDefault();move(k)}else if(e.key==='Backspace'){e.preventDefault();undo()}});if('serviceWorker'in navigator&&location.protocol.startsWith('http'))addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(()=>{}));generate();
 })();
