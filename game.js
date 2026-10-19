@@ -8,13 +8,32 @@ let stats=Object.assign(defaultStats(),readJSON(STATKEY)||{});stats.high=Object.
 function saveStats(){try{localStorage.setItem(STATKEY,JSON.stringify(stats))}catch{}}
 function saveGame(){if(!game||animating||generating)return;try{localStorage.setItem(SAVEKEY,JSON.stringify({mode,duration,remaining,cleared,stage,won,gameOver,moves,history,hp,adventureMax,game:{...game,walls:[...game.walls]}}))}catch{}}
 function loadGame(){let s=readJSON(SAVEKEY);if(!s||!s.game||!Array.isArray(s.game.walls)||!Array.isArray(s.game.warps))return false;try{mode=['time','adventure'].includes(s.mode)?s.mode:'endless';adventureMax=[10,50,100].includes(s.adventureMax)?s.adventureMax:100;hp=Number.isFinite(s.hp)?s.hp:adventureMax;duration=[60,180,300].includes(s.duration)?s.duration:300;remaining=Number(s.remaining)||duration;cleared=s.cleared||0;stage=s.stage||0;won=!!s.won;gameOver=!!s.gameOver;moves=s.moves||0;history=Array.isArray(s.history)?s.history:[];game={...s.game,walls:new Set(s.game.walls)};if(!game.player||!game.goal||!game.start)return false;if(mode==='time'){mode='endless';cleared=0;stage=0;won=false;return false}return true}catch{return false}}
-function showStats(){let box=$('#statsPanel');box.hidden=false;$('#statsText').innerHTML=`総プレイ時間：${Math.floor(stats.seconds/3600)}時間 ${Math.floor(stats.seconds%3600/60)}分 ${stats.seconds%60}秒<br>総クリア盤面数：${stats.solved}<br><strong>∞ エンドレス</strong><br>💛 トパーズ：${stats.topaz} / 💙 サファイア：${stats.sapphire} / ❤️ ルビー：${stats.ruby}<br><strong>⏱ タイムリミット</strong><br>🩷 トルマリン：${stats.tourmaline} / 💚 エメラルド：${stats.emerald} / 💜 アメジスト：${stats.amethyst}<br>1分：${stats.high[60]}面 / 3分：${stats.high[180]}面 / 5分：${stats.high[300]}面<br><strong>♥ アドベンチャー</strong><br>◆ オニキス：${stats.onyx||0} / 💎 ダイヤ：${stats.diamond||0}<br>HP100：${stats.adventureBest[100]}面 / HP50：${stats.adventureBest[50]}面 / HP10：${stats.adventureBest[10]}面（最高到達数）<br>ヒント使用回数：${stats.hints}<br>最短手数達成数：${stats.optimal}`}
+function showStats(){
+ const panel=$('#statsPanel');panel.hidden=false;
+ const line=(label,value)=>`<div class="stat-line">${label}：${value}</div>`;
+ const heading=label=>`<div class="stat-heading">${label}</div>`;
+ $('#statsText').innerHTML=[
+  line('総プレイ時間',`${Math.floor(stats.seconds/3600)}時間${Math.floor(stats.seconds%3600/60)}分${stats.seconds%60}秒`),
+  line('総クリア盤面',`${stats.solved}`),
+  heading('∞ エンドレス'),
+  line('トパーズ',`${stats.topaz}個`),line('サファイア',`${stats.sapphire}個`),line('ルビー',`${stats.ruby}個`),
+  heading('⏱ タイムリミット'),
+  line('トルマリン',`${stats.tourmaline}個`),line('エメラルド',`${stats.emerald}個`),line('アメジスト',`${stats.amethyst}個`),
+  heading('♥ アドベンチャー'),
+  line('オニキス',`${stats.onyx||0}個`),line('ダイヤ',`${stats.diamond||0}個`),
+  heading('🏆 ハイスコア'),
+  line('5分',`${stats.high[300]}面`),line('3分',`${stats.high[180]}面`),line('1分',`${stats.high[60]}面`),
+  line('HP100',`${stats.adventureBest[100]}面`),line('HP50',`${stats.adventureBest[50]}面`),line('HP10',`${stats.adventureBest[10]}面`),
+  heading('その他'),line('ヒント使用回数',`${stats.hints}回`),line('最短手数達成数',`${stats.optimal}回`)
+ ].join('');
+ panel.querySelector('#statsCard').scrollTop=0;
+}
 setInterval(()=>{if(document.visibilityState==='visible'){stats.seconds++;saveStats()}},1000);
 addEventListener('pagehide',()=>{saveStats();saveGame()});
 
 function slide(start,d,m){let p={...start};for(let i=0;i<m.w*m.h;i++){let x=p.x+d.x,y=p.y+d.y;if(x<0||y<0||x>=m.w||y>=m.h||m.walls.has(y*m.w+x))break;p={x,y};let wi=m.warps.findIndex(w=>same(w,p));if(wi>=0)return {...m.warps[wi^1]};}return p}
 function travelPath(start,d,m){let p={...start},cells=[],warp=false;for(let i=0;i<m.w*m.h;i++){let x=p.x+d.x,y=p.y+d.y;if(x<0||y<0||x>=m.w||y>=m.h||m.walls.has(y*m.w+x))break;p={x,y};cells.push({...p});let wi=m.warps.findIndex(w=>same(w,p));if(wi>=0){cells.push({...m.warps[wi^1]});warp=true;break}}return {cells,warp}}
-function cancelAnimation(){animationToken++;animating=false;answerRunning=false;answerPos=null}
+function cancelAnimation(){animationToken++;animating=false;answerRunning=false;answerPos=null;document.getElementById('answerGhost')?.remove()}
 function animateTravel(cells,done){const token=++animationToken;animating=true;let i=0;function step(){if(token!==animationToken)return;if(gameOver){animating=false;return}if(i<cells.length){game.player={...cells[i++]};render();setTimeout(step,32)}else{animating=false;done()}}step()}
 function solve(m,start,goal){let queue=[{p:start,path:[]}],seen=new Set([start.y*m.w+start.x]);for(let i=0;i<queue.length;i++){let cur=queue[i];if(same(cur.p,goal))return cur.path;for(const d of dirs){let next=slide(cur.p,d,m);if(same(next,cur.p))continue;let k=next.y*m.w+next.x;if(seen.has(k))continue;seen.add(k);queue.push({p:next,path:[...cur.path,d.k]})}}return null}
 // A jewel is valid only if it can be reached BEFORE the first stop on the goal.
@@ -37,7 +56,40 @@ function jewelRoute(m,start,goal,jewel){
  return null;
 }
 function solveWithJewel(m,start,goal,jewel){let q=[{p:start,got:!jewel,path:[]}],seen=new Set();for(let i=0;i<q.length;i++){let c=q[i],key=c.p.y*m.w+c.p.x+':'+Number(c.got);if(seen.has(key))continue;seen.add(key);if(same(c.p,goal)){if(c.got)return c.path;continue}for(let d of dirs){let next=slide(c.p,d,m);if(!same(next,c.p))q.push({p:next,got:c.got||!!jewel&&same(next,jewel),path:[...c.path,d.k]})}}return null}
-function answer(){if(mode!=='endless'||generating||animating||answerRunning)return;let path=solveWithJewel(game,game.start,game.goal,game.jewel&&game.jewelEligible?game.jewel.pos:null);if(!path){$('#message').textContent='解答経路が見つかりません';return}answerRunning=true;let token=++animationToken,position={...game.start},i=0;answerPos={...position};render();$('#message').textContent=`答え：${path.length}手（矢印で再生中）`;function next(){if(token!==animationToken)return;if(i>=path.length){answerRunning=false;answerPos=null;render();$('#message').textContent=`答え：${path.length}手。スタートからの最短経路です`;return}let d=dirs.find(x=>x.k===path[i++]),cells=travelPath(position,d,game).cells,j=0;function step(){if(token!==animationToken)return;if(j<cells.length){answerPos={...cells[j++]};render();setTimeout(step,32)}else{position={...answerPos};setTimeout(next,180)}}step()}setTimeout(next,250)}
+function positionAnswerGhost(){
+ const ghost=$('#answerGhost');if(!ghost||!answerPos||!game)return;
+ const board=$('#board'),style=getComputedStyle(board),pad=parseFloat(style.paddingLeft)||0,gap=parseFloat(style.columnGap)||0;
+ const side=(board.clientWidth-pad*2-gap*(game.w-1))/game.w;
+ ghost.style.width=side+'px';ghost.style.height=side+'px';
+ ghost.style.left=(pad+answerPos.x*(side+gap))+'px';ghost.style.top=(pad+answerPos.y*(side+gap))+'px';
+}
+function answer(){
+ if(mode!=='endless'||generating||animating||answerRunning||!game)return;
+ const path=solveWithJewel(game,game.start,game.goal,game.jewel&&game.jewelEligible?game.jewel.pos:null);
+ if(!path){$('#message').textContent='解答経路が見つかりません';return}
+ answerRunning=true;
+ const token=++animationToken;
+ let position={...game.start},index=0;
+ answerPos={...position};
+ const ghost=document.createElement('div');ghost.id='answerGhost';ghost.className='answer-ghost';ghost.textContent='➤';
+ $('#board').appendChild(ghost);positionAnswerGhost();
+ $('#message').textContent=`答え：${path.length}手（矢印で再生中）`;
+ function next(){
+  if(token!==animationToken)return;
+  if(index>=path.length){answerRunning=false;answerPos=null;ghost.remove();$('#message').textContent=`答え：${path.length}手。スタートからの最短経路です`;return}
+  const d=dirs.find(x=>x.k===path[index++]);
+  ghost.textContent={up:'▲',down:'▼',left:'◀',right:'▶'}[d.k];
+  const cells=travelPath(position,d,game).cells;
+  let stepIndex=0;
+  function step(){
+   if(token!==animationToken)return;
+   if(stepIndex<cells.length){answerPos={...cells[stepIndex++]};positionAnswerGhost();setTimeout(step,32)}
+   else{position={...answerPos};setTimeout(next,180)}
+  }
+  step();
+ }
+ setTimeout(next,250);
+}
 function chooseJewel(g){
  let {m,start,goal,path}=g;
  // Only consider reachable stopping squares without touching the goal first.
@@ -84,7 +136,7 @@ if(!jewel){
  }
 }
 game={...candidate.m,start:candidate.start,goal:candidate.goal,player:{...candidate.start},optimal:candidate.path.length,jewel:jewel||null,jewelTaken:false,jewelEligible:true,jewelMoves:null};history=[];moves=0;won=false;render();saveGame();}finally{generating=false}}
-function render(){let b=$('#board');b.style.gridTemplateColumns=`repeat(${game.w},minmax(0,1fr))`;b.style.gridTemplateRows=`repeat(${game.h},minmax(0,1fr))`;b.innerHTML='';const colors=['#ad4ce2','#277edc','#e14d95','#169b80','#da7b27','#6555ed','#e05747','#3aa3b0','#b1a22a','#aa4d80'];for(let y=0;y<game.h;y++)for(let x=0;x<game.w;x++){let e=document.createElement('div'),idx=y*game.w+x,ch='';e.className='cell';if(game.walls.has(idx)){e.classList.add('wall');ch=''}let wi=game.warps.findIndex(w=>same(w,{x,y}));if(wi>=0){e.classList.add('warp');ch=String.fromCharCode(65+(wi>>1));e.style.background=colors[(wi>>1)%colors.length]}if(game.jewel&&game.jewelEligible&&!game.jewelTaken&&same(game.jewel.pos,{x,y})){e.classList.add('jewel',game.jewel.tier);ch='◆'}if(same(game.goal,{x,y})){e.classList.add('goal');ch='★'}if(same(game.player,{x,y})){e.classList.add('player');e.style.background='#00eaff';e.style.color='#001d32';e.style.boxShadow='inset 0 0 0 2px #ffffff,0 0 12px #00eaff';ch='@'}if(answerPos&&same(answerPos,{x,y})){e.classList.add('answer-arrow');ch='➤'}e.textContent=ch;b.appendChild(e)}$('#answer').hidden=mode!=='endless';$('#adventureHud').hidden=mode!=='adventure';$('#hpValue').textContent=hp;$('#hpMax').textContent=adventureMax;$('#moves').textContent=moves;$('#optimal').textContent=game.optimal;$('#mapinfo').textContent=`${game.w}×${game.h} / WARP ${game.warps.length/2}`;$('#warplegend').textContent=game.warps.length?'同じ文字同士でワープ':'ワープなし';$('#cleared').textContent=cleared;$('#timer').textContent=fmt(remaining);$('#timer').hidden=mode!=='time';$('#score').hidden=mode==='endless';$('#modeEndless').classList.toggle('selected',mode==='endless');[100,50,10].forEach(n=>$('#modeAdventure'+n).classList.toggle('selected',mode==='adventure'&&adventureMax===n));[60,180,300].forEach(sec=>$('#modeTime'+(sec/60)).classList.toggle('selected',mode==='time'&&duration===sec));$('#restart').textContent=mode==='time'?'↻ 最初から':mode==='adventure'?'↻ 冒険をやり直す':'✦ 新しい迷宮';$('#gemInfo').textContent=game.jewel?(game.jewelTaken?'◆ 回収済':game.jewelEligible?({'topaz':'🟡 トパーズ','sapphire':'🔵 サファイア','ruby':'🔴 ルビー','tourmaline':'🩷 トルマリン','emerald':'💚 エメラルド','amethyst':'🟣 アメジスト','onyx':'⚫ オニキス','diamond':'💎 ダイヤ'}[game.jewel.tier]):'◆ ヒント使用'):'◆ なし';$('#gemInfo').hidden=false}
+function render(){let b=$('#board');b.style.gridTemplateColumns=`repeat(${game.w},minmax(0,1fr))`;b.style.gridTemplateRows=`repeat(${game.h},minmax(0,1fr))`;b.innerHTML='';const colors=['#ad4ce2','#277edc','#e14d95','#169b80','#da7b27','#6555ed','#e05747','#3aa3b0','#b1a22a','#aa4d80'];for(let y=0;y<game.h;y++)for(let x=0;x<game.w;x++){let e=document.createElement('div'),idx=y*game.w+x,ch='';e.className='cell';if(game.walls.has(idx)){e.classList.add('wall');ch=''}let wi=game.warps.findIndex(w=>same(w,{x,y}));if(wi>=0){e.classList.add('warp');ch=String.fromCharCode(65+(wi>>1));e.style.background=colors[(wi>>1)%colors.length]}if(game.jewel&&game.jewelEligible&&!game.jewelTaken&&same(game.jewel.pos,{x,y})){e.classList.add('jewel',game.jewel.tier);ch='◆'}if(same(game.goal,{x,y})){e.classList.add('goal');ch='★'}if(same(game.player,{x,y})){e.classList.add('player');e.style.background='#00eaff';e.style.color='#001d32';e.style.boxShadow='inset 0 0 0 2px #ffffff,0 0 12px #00eaff';ch='@'}e.textContent=ch;b.appendChild(e)}if(answerRunning&&answerPos){let ghost=document.createElement('div');ghost.id='answerGhost';ghost.className='answer-ghost';ghost.textContent='➤';b.appendChild(ghost);positionAnswerGhost()}$('#answer').hidden=mode!=='endless';$('#adventureHud').hidden=mode!=='adventure';$('#hpValue').textContent=hp;$('#hpMax').textContent=adventureMax;$('#moves').textContent=moves;$('#optimal').textContent=game.optimal;$('#mapinfo').textContent=`${game.w}×${game.h} / WARP ${game.warps.length/2}`;$('#warplegend').textContent=game.warps.length?'同じ文字同士でワープ':'ワープなし';$('#cleared').textContent=cleared;$('#timer').textContent=fmt(remaining);$('#timer').hidden=mode!=='time';$('#score').hidden=mode==='endless';$('#modeEndless').classList.toggle('selected',mode==='endless');[100,50,10].forEach(n=>$('#modeAdventure'+n).classList.toggle('selected',mode==='adventure'&&adventureMax===n));[60,180,300].forEach(sec=>$('#modeTime'+(sec/60)).classList.toggle('selected',mode==='time'&&duration===sec));$('#restart').textContent=mode==='time'?'↻ 最初から':mode==='adventure'?'↻ 冒険をやり直す':'✦ 新しい迷宮';$('#gemInfo').textContent=game.jewel?(game.jewelTaken?'◆ 回収済':game.jewelEligible?({'topaz':'🟡 トパーズ','sapphire':'🔵 サファイア','ruby':'🔴 ルビー','tourmaline':'🩷 トルマリン','emerald':'💚 エメラルド','amethyst':'🟣 アメジスト','onyx':'⚫ オニキス','diamond':'💎 ダイヤ'}[game.jewel.tier]):'◆ ヒント使用'):'◆ なし';$('#gemInfo').hidden=false}
 function fmt(t){let s=Math.max(0,Math.ceil(t));return `${String(Math.floor(s/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`}
 function tick(){if(mode!=='time'||!active||gameOver)return;remaining=Math.max(0,(deadline-performance.now())/1000);$('#timer').textContent=fmt(remaining);if(remaining<=0){cancelAnimation();active=false;gameOver=true;clearInterval(ticker);$('#message').textContent=`TIME UP! ${cleared}ステージクリア。再挑戦できます。`;$('#timer').textContent='00:00';$('#restart').textContent='↻ 再挑戦';stats.high[duration]=Math.max(stats.high[duration],cleared);saveStats();saveGame()}}
 function startTimer(){clearInterval(ticker);remaining=duration;deadline=performance.now()+duration*1000;active=true;gameOver=false;ticker=setInterval(tick,150)}
